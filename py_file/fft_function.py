@@ -6,6 +6,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 plt.rcParams['font.sans-serif'] = ['SimHei']      # 设置中文黑体
 plt.rcParams['axes.unicode_minus'] = False        # 解决负号显示为方块
@@ -21,34 +22,38 @@ def compute_fft(signal_data, fs):
     
     返回:
         f: 频率数组 (Hz)
-        magnitude: 幅度谱
+        magnitude: 归一化后的幅度谱
         phase: 相位谱
     """
-    # 计算FFT
     n = len(signal_data)
     fft_result = np.fft.fft(signal_data)
     
-    # 计算频率数组（只取正频率部分）
     f = np.fft.fftfreq(n, 1/fs)
-    f = f[:n//2]  # 只取正频率部分
+    f = f[:n//2]
     
-    # 计算幅度和相位（只取正频率部分）
-    magnitude = np.abs(fft_result[:n//2])
+    # 归一化：除以采样点数，使幅值更接近原始信号的幅度
+    magnitude = np.abs(fft_result[:n//2]) / n
     phase = np.angle(fft_result[:n//2])
+    
+    # 去掉直流分量（f=0的分量，索引0）
+    f = f[1:]
+    magnitude = magnitude[1:]
+    phase = phase[1:]
     
     return f, magnitude, phase
 
 
-def plot_time_and_frequency_domain(signal_data, fs, 
+def plot_time_and_frequency_domain(signal_data, fs,
                                    time_title='时域图',
                                    freq_title='频域图',
                                    max_display_time=None,
                                    max_frequency=None,
                                    yscale='linear',
-                                   figsize=(12, 8)):
+                                   figsize=(12, 8),
+                                   block=True):
     """
     在一个窗口中同时绘制时域图和频域图（两个子图）
-    
+
     参数:
         signal_data: 输入信号数组 (1D numpy array)
         fs: 采样频率 (Hz)
@@ -58,6 +63,7 @@ def plot_time_and_frequency_domain(signal_data, fs,
         max_frequency: 频域图最大显示频率（Hz），None表示显示到奈奎斯特频率
         yscale: 频域图Y轴刻度类型，'linear'或'log'
         figsize: 图形大小，默认(12, 8)
+        block: 是否阻塞显示，默认True
     """
     # 创建时间数组
     time = np.arange(len(signal_data)) / fs
@@ -104,10 +110,11 @@ def plot_time_and_frequency_domain(signal_data, fs,
     ax2.set_ylabel('幅度')
     ax2.set_xlim([0, max_frequency])
     ax2.set_yscale(yscale)
+    ax2.xaxis.set_major_locator(MaxNLocator(nbins=20))# 修改 nbins 参数，设置横坐标刻度更细（增加刻度数量）
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.show()
-    
+    plt.show(block=block)
+
     return fig
 

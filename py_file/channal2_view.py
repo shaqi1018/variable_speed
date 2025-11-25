@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 # ================================
 # Modify here: your .mat file path
 # ================================
-mat_path = r"D:\CNN\CNNe\UO_Bearing\1 Data collected from a healthy bearing\H-B-1.mat"
+mat_path = r"D:\Variable_speed\University_of_Ottawa\Original_data\UO_Bearing\1 Data collected from a healthy bearing\H-A-1.mat"
 
 # Encoder parameters - University of Ottawa dataset
 ENCODER_CPR = 1024  # Counts Per Revolution (confirmed for Ottawa dataset)
@@ -126,8 +126,8 @@ def calculate_instantaneous_rpm(signal, fs, encoder_cpr):
     
     # Filter out unrealistic periods
     # For variable speed bearing: typical RPM range might be 100-3000 RPM
-    # At 100 RPM: period per pulse = 60/(100*CPR) = 0.6/CPR ¡Ö 0.0006 seconds
-    # At 3000 RPM: period per pulse = 60/(3000*CPR) = 0.02/CPR ¡Ö 0.00002 seconds
+    # At 100 RPM: period per pulse = 60/(100*CPR) = 0.6/CPR ï¿½ï¿½ 0.0006 seconds
+    # At 3000 RPM: period per pulse = 60/(3000*CPR) = 0.02/CPR ï¿½ï¿½ 0.00002 seconds
     # But we should be more lenient for variable speed
     min_period = 0.00001  # Very short period (very high RPM)
     max_period = 0.1      # Longer period (very low RPM or missing pulses)

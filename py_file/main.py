@@ -5,8 +5,10 @@
 
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 from fft_function import plot_time_and_frequency_domain
 from load_data import load_channel1_data
+from stft_function import plot_stft_spectrogram
 
 
 # ================================
@@ -24,9 +26,9 @@ FS = 200000
 # 2: 3 Data collected from a bearing with outer race fault
 # 3: 4 Data collected from a bearing with ball fault
 # 4: 5 Data collected from a bearing with a combination of faults
-SELECTED_FOLDER_INDEX = 1  # 修改这个值来选择要处理的文件夹（0-4）
+SELECTED_FOLDER_INDEX = 2  # 修改这个值来选择要处理的文件夹（0-4）
 
-EXAMPLE_FILE = "I-A-1.mat"  # 修改这个值来选择要处理的文件名
+EXAMPLE_FILE = "O-A-1.mat"  # 修改这个值来选择要处理的文件名
 
 
 # ================================
@@ -57,15 +59,29 @@ def process_single_file(mat_path, plot=True):
     if plot:
         time_title = f'时域图 - {os.path.basename(mat_path)} (Channel_1)'
         freq_title = f'频域图 - {os.path.basename(mat_path)} (Channel_1)'
-        
+        stft_title = f'时频图 (STFT) - {os.path.basename(mat_path)} (Channel_1)'
+
         print("\n显示时域图和频域图...")
-        plot_time_and_frequency_domain(channel1_data, FS, 
+        plot_time_and_frequency_domain(channel1_data, FS,
                                       time_title=time_title,
                                       freq_title=freq_title,
                                       max_display_time=None,
                                       max_frequency=None,
-                                      yscale='linear')
-    
+                                      yscale='linear',
+                                      block=False)  # 非阻塞显示
+
+        print("\n显示时频图 (STFT)...")
+        plot_stft_spectrogram(channel1_data, FS,
+                            title=stft_title,
+                            nperseg=131072,  # 窗口长度
+                            noverlap=98304,  # 重叠长度（75%）
+                            max_frequency=30,  # 最大显示频率30Hz
+                            block=False)  # 非阻塞显示
+
+        # 阻塞显示所有窗口，直到用户关闭
+        print("\n两个窗口已同时显示，关闭窗口以继续...")
+        plt.show()
+
     return channel1_data
 
 
