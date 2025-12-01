@@ -63,24 +63,57 @@ def parabolic_interpolation(power_spectrum, peak_idx, frequencies):
 
 
 def compute_penalty_function(power_spectrum, freq_indices, frequencies,
-                             prev_if=None, lambda_smooth=0.0, use_interpolation=True):
-    """计算惩罚函数并返回最优频率"""
-    prob = compute_probability_distribution(power_spectrum, freq_indices)
-    entropy = compute_entropy(prob)
+                             prev_if=None, lambda_smooth=0.0, use_interpolation=True,
+                             entropy_weight=0.5):
+    """
+    计算惩罚函数并返回最优频率
+
+    惩罚函数 (论文公式8): χ = -|TFD|² + entropy_weight * H
+    目标: 最小化χ = 最大化功率 + 惩罚高熵(噪声)
+
+    参数:
+        entropy_weight: 熵的惩罚权重，越大越倾向于选择低熵(能量集中)的频率
+    """
     power_in_range = power_spectrum[freq_indices]
+    max_power = np.max(power_in_range)
+    normalized_power = power_in_range / max_power if max_power > 1e-10 else np.zeros(len(freq_indices))
+
+    # 计算每个候选频率点的局部熵
+    local_entropies = np.zeros(len(freq_indices))
+    window_size = max(3, len(freq_indices) // 10)  # 局部窗口大小
+
+    for i, idx in enumerate(freq_indices):
+        # 取该频率点附近的局部窗口计算熵
+        left = max(0, idx - window_size)
+        right = min(len(power_spectrum), idx + window_size + 1)
+        local_indices = np.arange(left, right)
+        local_prob = compute_probability_distribution(power_spectrum, local_indices)
+        local_entropies[i] = compute_entropy(local_prob)
+
+    # 归一化局部熵到[0,1]
+    max_entropy = np.max(local_entropies)
+    min_entropy = np.min(local_entropies)
+    if max_entropy - min_entropy > 1e-10:
+        normalized_entropy = (local_entropies - min_entropy) / (max_entropy - min_entropy)
+    else:
+        normalized_entropy = np.zeros(len(freq_indices))
+
+    # 惩罚函数: χ = -功率 + entropy_weight * 熵 + lambda_smooth * 频率偏离
+    penalty = -normalized_power + entropy_weight * normalized_entropy
 
     if lambda_smooth > 0 and prev_if is not None:
-        max_power = np.max(power_in_range)
-        normalized_power = power_in_range / max_power if max_power > 1e-10 else np.zeros(len(freq_indices))
         freq_deviation = np.abs(frequencies[freq_indices] - prev_if) / prev_if
-        local_idx = np.argmin(-normalized_power + lambda_smooth * freq_deviation)
-    else:
-        local_idx = np.argmax(power_in_range)
+        penalty += lambda_smooth * freq_deviation
 
+    local_idx = np.argmin(penalty)
     best_idx = freq_indices[local_idx]
     best_freq = parabolic_interpolation(power_spectrum, best_idx, frequencies) if use_interpolation else frequencies[best_idx]
 
-    return best_freq, best_idx, entropy
+    # 返回全局熵用于调试
+    global_prob = compute_probability_distribution(power_spectrum, freq_indices)
+    global_entropy = compute_entropy(global_prob)
+
+    return best_freq, best_idx, global_entropy
 
 
 

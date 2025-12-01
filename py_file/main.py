@@ -31,7 +31,7 @@ LPS_CONFIG = {
     'adaptive_range': True,     # 开启自适应搜索范围
     'use_interpolation': True,  # 开启抛物线插值
     'bidirectional': True,      # 开启双向追踪
-    'lambda_smooth': 5.0,       # 平滑约束系数
+    'lambda_smooth': 2.61,       # 平滑约束系数
 
 }
 
