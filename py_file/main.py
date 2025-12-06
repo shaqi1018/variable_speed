@@ -37,6 +37,11 @@ IF_SMOOTH_CONFIG = {
     't_end': 10,
 }
 
+# 切片参数
+DOWNSAMPLE_FACTOR = 10  # 降采样因子（每10个点取1个）
+WINDOW_SIZE = 3072      # 每个样本的长度
+HOP_SIZE = 3072         # 步长（无重叠）
+
 
 # ================================
 # 主函数
@@ -49,13 +54,19 @@ if __name__ == "__main__":
     for i, subdir in enumerate(dataset.subdirs):
         print(f"  [{i}] {subdir}")
 
-    # 构建数据集：遍历所有60个文件，提取IF
+    # 构建数据集：遍历0-3文件夹，提取IF、降采样、切片
     print("\n开始构建数据集...")
-    dataset.build_dataset(LPS_CONFIG, IF_SMOOTH_CONFIG, verbose=True)
+    dataset.build_dataset(
+        LPS_CONFIG, IF_SMOOTH_CONFIG,
+        window_size=WINDOW_SIZE,
+        hop_size=HOP_SIZE,
+        downsample_factor=DOWNSAMPLE_FACTOR,
+        verbose=True
+    )
 
-    # 数据已收集到:
-    # - dataset.all_data: 60条原始信号，每条2000000点
-    # - dataset.all_if: 60条IF曲线，每条2000000点（已拉伸对齐）
-    # - dataset.all_labels: 60个标签 (0-4)
+    # 数据已切片存储到:
+    # - dataset.all_data: (n_samples, 3072) 切片后的信号
+    # - dataset.all_if: (n_samples,) 每个切片的IF均值
+    # - dataset.all_labels: (n_samples,) 标签
 
     print("\n处理完成！")

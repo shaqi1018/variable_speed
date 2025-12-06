@@ -78,23 +78,42 @@ class OttawaDataset:
         folder_path = os.path.join(self.base_path, self.subdirs[folder_idx])
         return [f for f in os.listdir(folder_path) if f.endswith('.mat')]
 
-    def build_dataset(self, lps_config, if_smooth_config, verbose=True):
+    def build_dataset(self, lps_config, if_smooth_config,
+                      window_size=3072, hop_size=None,
+                      downsample_factor=10,
+                      folder_indices=None, verbose=True):
         """
-        遍历所有文件，提取IF并收集数据
+        遍历所有文件，提取IF并同步切片存储
 
         参数:
             lps_config: LPS算法参数字典
             if_smooth_config: IF平滑插值参数字典
+            window_size: 切片窗口长度，默认3072
+            hop_size: 切片步长，默认为window_size（无重叠）
+            downsample_factor: 降采样因子，默认10（每10个点取1个）
+            folder_indices: 要处理的文件夹索引列表，默认[0,1,2,3]
             verbose: 是否打印进度信息
         """
-        # 清空容器
-        self.all_data = []
-        self.all_if = []
-        self.all_labels = []
-        self.all_filenames = []
+        import numpy as np
 
-        # 外层循环：遍历故障类型（5个文件夹）
-        for folder_idx in range(len(self.subdirs)):
+        # 默认步长 = 窗口长度（无重叠）
+        if hop_size is None:
+            hop_size = window_size
+
+        # 默认只处理0-3文件夹
+        if folder_indices is None:
+            folder_indices = [0, 1, 2, 3]
+
+        # 清空容器（存切片后的数据）
+        self.all_data = []      # 切片后的信号 (window_size,)
+        self.all_if = []        # IF均值（标量）
+        self.all_labels = []    # 标签
+
+        total_slices = 0
+        file_count = 0
+
+        # 外层循环：遍历指定的故障类型
+        for folder_idx in folder_indices:
             folder_name = self.subdirs[folder_idx]
             label = self.get_label(folder_idx)
             label_name = self.get_label_name(folder_idx)
@@ -106,6 +125,7 @@ class OttawaDataset:
             mat_files = self.list_files(folder_idx)
 
             for filename in mat_files:
+                file_count += 1
                 if verbose:
                     print(f"  处理: {filename}", end=" ... ")
 
@@ -117,32 +137,57 @@ class OttawaDataset:
                     signal_data, self.fs, lps_config, if_smooth_config,
                     verbose=False
                 )
+                if_interp = result['if_interp']  # 拉伸后IF (2000000,)
 
-                # 收集数据
-                self.all_data.append(signal_data)           # 原始信号 (2000000,)
-                self.all_if.append(result['if_interp'])     # 拉伸后IF (2000000,)
-                self.all_labels.append(label)               # 标签
-                self.all_filenames.append(filename)         # 文件名
+                # 降采样：每隔 downsample_factor 个点取1个点
+                signal_data = signal_data[::downsample_factor]   # 2000000 -> 200000
+                if_interp = if_interp[::downsample_factor]       # 2000000 -> 200000
+
+                # 计算切片数量: (总点数 - 窗口长度) // 步长 + 1
+                n_slices = (len(signal_data) - window_size) // hop_size + 1
+
+                # 切片循环
+                for i in range(n_slices):
+                    start = i * hop_size
+                    end = start + window_size
+
+                    # 动作A: 切信号
+                    signal_slice = signal_data[start:end]
+
+                    # 动作B: 切IF
+                    if_slice = if_interp[start:end]
+
+                    # 动作C: IF降维 - 求平均值（已经是Hz，不需要除以60）
+                    if_mean = np.mean(if_slice)
+
+                    # 动作D: 打标签（使用当前文件夹的label）
+                    # 装箱
+                    self.all_data.append(signal_slice)   # (3072,)
+                    self.all_if.append(if_mean)          # 标量
+                    self.all_labels.append(label)        # 标签
+
+                total_slices += n_slices
 
                 if verbose:
-                    print(f"完成 (IF均值: {result['if_interp'].mean():.2f} Hz)")
+                    print(f"切片: {n_slices} 片, IF均值: {np.mean(if_interp):.2f} Hz")
+
+        # 转换为numpy数组，并为Conv1d添加通道维度
+        self.all_data = np.array(self.all_data)[:, np.newaxis, :]  # (n_samples, 1, window_size)
+        self.all_if = np.array(self.all_if)          # (n_samples,)
+        self.all_labels = np.array(self.all_labels)  # (n_samples,)
 
         if verbose:
             print(f"\n{'='*50}")
             print(f"数据集构建完成!")
-            print(f"  文件总数: {len(self.all_data)}")
-            print(f"  每条信号: {self.signal_length} 点")
-            print(f"  每条IF: {len(self.all_if[0])} 点")
+            print(f"  文件总数: {file_count}")
+            print(f"  降采样: 每{downsample_factor}取1 ({self.signal_length} -> {self.signal_length // downsample_factor})")
+            print(f"  窗口长度: {window_size}, 步长: {hop_size}")
+            print(f"  总切片数: {len(self.all_data)}")
+            print(f"  all_data shape: {self.all_data.shape}")
+            print(f"  all_if shape: {self.all_if.shape}")
+            print(f"  all_labels shape: {self.all_labels.shape}")
+            print(f"  IF范围: 【{self.all_if.min():.2f} - {self.all_if.max():.2f}】Hz")
             print(f"  标签分布: {self._count_labels()}")
-
-            # 打印O-B-1.mat的转速Hz范围
-            target_file = "O-B-1.mat"
-            if target_file in self.all_filenames:
-                idx = self.all_filenames.index(target_file)
-                sample_if = self.all_if[idx]
-                min_hz = sample_if.min()
-                max_hz = sample_if.max()
-                print(f"  {target_file} 转速范围: 【{min_hz:.2f} - {max_hz:.2f}】Hz")
 
     def _count_labels(self):
         """统计各标签数量"""
