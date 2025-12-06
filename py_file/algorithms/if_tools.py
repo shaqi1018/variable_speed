@@ -59,14 +59,3 @@ def smooth_and_interpolate_if(t_if, if_estimated, n_samples=2000000,
     trend_interp = cs_trend(t_full)
     
     return t_full, if_interp, trend_interp
-
-
-def convert_if_to_rpm(if_array):
-    """将瞬时频率(Hz)转换为转速(RPM)"""
-    return if_array * 60
-
-
-def convert_rpm_to_if(rpm_array):
-    """将转速(RPM)转换为瞬时频率(Hz)"""
-    return rpm_array / 60
-

@@ -44,10 +44,9 @@ class OttawaDataset:
         self.subdirs = self._get_subdirs()
 
         # 数据容器（build_dataset后填充）
-        self.all_data = []      # 原始振动信号
-        self.all_if = []        # 拉伸后的IF曲线
-        self.all_labels = []    # 标签
-        self.all_filenames = [] # 文件名列表
+        self.all_data = []
+        self.all_if = []
+        self.all_labels = []
 
     def _get_subdirs(self):
         """获取子文件夹列表"""
@@ -104,12 +103,10 @@ class OttawaDataset:
         if folder_indices is None:
             folder_indices = [0, 1, 2, 3]
 
-        # 清空容器（存切片后的数据）
-        self.all_data = []      # 切片后的信号 (window_size,)
-        self.all_if = []        # IF均值（标量）
-        self.all_labels = []    # 标签
-
-        total_slices = 0
+        # 清空容器
+        self.all_data = []
+        self.all_if = []
+        self.all_labels = []
         file_count = 0
 
         # 外层循环：遍历指定的故障类型
@@ -150,31 +147,21 @@ class OttawaDataset:
                 for i in range(n_slices):
                     start = i * hop_size
                     end = start + window_size
-
-                    # 动作A: 切信号
                     signal_slice = signal_data[start:end]
-
-                    # 动作B: 切IF
                     if_slice = if_interp[start:end]
-
-                    # 动作C: IF降维 - 求平均值（已经是Hz，不需要除以60）
                     if_mean = np.mean(if_slice)
 
-                    # 动作D: 打标签（使用当前文件夹的label）
-                    # 装箱
-                    self.all_data.append(signal_slice)   # (3072,)
-                    self.all_if.append(if_mean)          # 标量
-                    self.all_labels.append(label)        # 标签
-
-                total_slices += n_slices
+                    self.all_data.append(signal_slice)
+                    self.all_if.append(if_mean)
+                    self.all_labels.append(label)
 
                 if verbose:
                     print(f"切片: {n_slices} 片, IF均值: {np.mean(if_interp):.2f} Hz")
 
         # 转换为numpy数组，并为Conv1d添加通道维度
-        self.all_data = np.array(self.all_data)[:, np.newaxis, :]  # (n_samples, 1, window_size)
-        self.all_if = np.array(self.all_if)          # (n_samples,)
-        self.all_labels = np.array(self.all_labels)  # (n_samples,)
+        self.all_data = np.array(self.all_data)[:, np.newaxis, :]
+        self.all_if = np.array(self.all_if)
+        self.all_labels = np.array(self.all_labels)
 
         if verbose:
             print(f"\n{'='*50}")

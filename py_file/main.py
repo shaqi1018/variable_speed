@@ -64,9 +64,4 @@ if __name__ == "__main__":
         verbose=True
     )
 
-    # 数据已切片存储到:
-    # - dataset.all_data: (n_samples, 3072) 切片后的信号
-    # - dataset.all_if: (n_samples,) 每个切片的IF均值
-    # - dataset.all_labels: (n_samples,) 标签
-
     print("\n处理完成！")
