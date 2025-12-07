@@ -173,7 +173,7 @@ class OttawaDataset:
             print(f"  all_data shape: {self.all_data.shape}")
             print(f"  all_if shape: {self.all_if.shape}")
             print(f"  all_labels shape: {self.all_labels.shape}")
-            print(f"  IF范围: 【{self.all_if.min():.2f} - {self.all_if.max():.2f}】Hz")
+            # print(f"  IF范围: 【{self.all_if.min():.2f} - {self.all_if.max():.2f}】Hz")
             print(f"  标签分布: {self._count_labels()}")
 
     def _count_labels(self):
