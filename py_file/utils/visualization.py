@@ -4,9 +4,12 @@
 包含绘图相关函数
 """
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
+import seaborn as sns
+from sklearn.metrics import confusion_matrix, classification_report
 
 plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
@@ -127,3 +130,112 @@ def plot_if_interpolation(t_full, if_interp, trend_interp, title='IF插值结果
     plt.show(block=block)
     return fig
 
+
+def plot_training_history(train_losses, val_losses, train_accs, val_accs, save_dir='results'):
+    """
+    绘制训练过程曲线并保存
+    
+    参数:
+        train_losses: 训练集损失列表
+        val_losses: 验证集损失列表
+        train_accs: 训练集准确率列表
+        val_accs: 验证集准确率列表
+        save_dir: 保存目录
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    
+    epochs = range(1, len(train_losses) + 1)
+    
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Loss 曲线
+    axes[0].plot(epochs, train_losses, 'b-', label='Train Loss', linewidth=2)
+    axes[0].plot(epochs, val_losses, 'r-', label='Val Loss', linewidth=2)
+    axes[0].set_xlabel('Epochs', fontsize=12)
+    axes[0].set_ylabel('Loss', fontsize=12)
+    axes[0].set_title('Training and Validation Loss', fontsize=14, fontweight='bold')
+    axes[0].legend(fontsize=11)
+    axes[0].grid(True, alpha=0.3)
+    
+    # Accuracy 曲线
+    axes[1].plot(epochs, train_accs, 'b-', label='Train Acc', linewidth=2)
+    axes[1].plot(epochs, val_accs, 'r-', label='Val Acc', linewidth=2)
+    axes[1].set_xlabel('Epochs', fontsize=12)
+    axes[1].set_ylabel('Accuracy (%)', fontsize=12)
+    axes[1].set_title('Training and Validation Accuracy', fontsize=14, fontweight='bold')
+    axes[1].legend(fontsize=11)
+    axes[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    save_path = os.path.join(save_dir, 'training_history.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"训练历史曲线已保存至: {save_path}")
+    plt.close()
+
+
+def plot_confusion_matrix(y_true, y_pred, class_names, save_dir='results'):
+    """
+    绘制混淆矩阵并保存
+    
+    参数:
+        y_true: 真实标签
+        y_pred: 预测标签
+        class_names: 类别名称列表
+        save_dir: 保存目录
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    
+    cm = confusion_matrix(y_true, y_pred)
+    
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=class_names, 
+                yticklabels=class_names,
+                cbar_kws={'label': 'Count'},
+                annot_kws={'fontsize': 12})
+    plt.title('Confusion Matrix', fontsize=14, fontweight='bold')
+    plt.ylabel('True Label', fontsize=12)
+    plt.xlabel('Predicted Label', fontsize=12)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    
+    plt.tight_layout()
+    save_path = os.path.join(save_dir, 'confusion_matrix.png')
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"混淆矩阵已保存至: {save_path}")
+    plt.close()
+    
+    return cm
+
+
+def generate_classification_report(y_true, y_pred, class_names, save_dir='results'):
+    """
+    生成分类报告并保存
+    
+    参数:
+        y_true: 真实标签
+        y_pred: 预测标签
+        class_names: 类别名称列表
+        save_dir: 保存目录
+    
+    返回:
+        report_str: 分类报告字符串
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    
+    report_str = classification_report(y_true, y_pred, target_names=class_names, digits=4)
+    
+    # 保存为文本文件
+    save_path = os.path.join(save_dir, 'classification_report.txt')
+    with open(save_path, 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n")
+        f.write("Classification Report\n")
+        f.write("=" * 60 + "\n\n")
+        f.write(report_str)
+        f.write("\n" + "=" * 60 + "\n")
+    
+    print(f"分类报告已保存至: {save_path}")
+    print("\n分类报告:")
+    print(report_str)
+    
+    return report_str

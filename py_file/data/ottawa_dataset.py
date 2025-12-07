@@ -182,3 +182,25 @@ class OttawaDataset:
         counts = Counter(self.all_labels)
         return {self.get_label_name(k): v for k, v in sorted(counts.items())}
 
+    # ========== PyTorch Dataset 接口 ==========
+    def __len__(self):
+        """返回数据集大小"""
+        return len(self.all_data)
+
+    def __getitem__(self, idx):
+        """
+        获取单个样本
+
+        返回:
+            data: 振动信号 (1, 3072) float32
+            if_val: 瞬时频率 Hz (标量) float32
+            label: 故障类型标签 (标量) long
+        """
+        import torch
+
+        data = torch.from_numpy(self.all_data[idx]).float()      # (1, 3072)
+        if_val = torch.tensor(self.all_if[idx]).float()          # 标量
+        label = torch.tensor(self.all_labels[idx]).long()        # 标量
+
+        return data, if_val, label
+
