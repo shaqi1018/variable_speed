@@ -1,26 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-基于熵的LPS算法 - 瞬时频率(IF)提取
-Entropy-based Local Peak Search Algorithm with Adaptive IF Search Range
+传统LPS算法 - 瞬时频率(IF)提取
+Local Peak Search Algorithm with Adaptive IF Search Range
+支持策略注入，通过 strategy 参数选择不同的惩罚函数
 """
 
 import numpy as np
 from .time_freq import compute_stft
-
-
-def compute_probability_distribution(power_spectrum, freq_indices):
-    """计算概率分布 d_k(μ_ki) = S_k(μ_ki) / Σ S_k(μ_kj)"""
-    power = power_spectrum[freq_indices]
-    total_power = np.sum(power)
-    if total_power > 1e-10:
-        return power / total_power
-    return np.ones(len(freq_indices)) / len(freq_indices)
-
-
-def compute_entropy(prob_distribution):
-    """计算熵 H = -Σ d_k · log(d_k)"""
-    prob = np.clip(prob_distribution, 1e-10, 1.0)
-    return -np.sum(prob * np.log(prob))
+from .Entropy.penalty_factory import get_strategy, PENALTY_STRATEGIES
 
 
 def find_initial_if(power_spectrum, frequencies, min_freq, max_freq):
@@ -54,57 +41,19 @@ def parabolic_interpolation(power_spectrum, peak_idx, frequencies):
     return frequencies[peak_idx] + delta * freq_resolution
 
 
-def compute_penalty_function(power_spectrum, freq_indices, frequencies,
-                             prev_if=None, lambda_smooth=0.0, use_interpolation=True,
-                             entropy_weight=0.5):
-    """
-    计算惩罚函数并返回最优频率
-    惩罚函数 (论文公式8): χ = -|TFD|² + entropy_weight * H
-    """
-    power_in_range = power_spectrum[freq_indices]
-    max_power = np.max(power_in_range)
-    normalized_power = power_in_range / max_power if max_power > 1e-10 else np.zeros(len(freq_indices))
-    
-    # 计算每个候选频率点的局部熵
-    local_entropies = np.zeros(len(freq_indices))
-    window_size = max(3, len(freq_indices) // 10)
-    
-    for i, idx in enumerate(freq_indices):
-        left = max(0, idx - window_size)
-        right = min(len(power_spectrum), idx + window_size + 1)
-        local_indices = np.arange(left, right)
-        local_prob = compute_probability_distribution(power_spectrum, local_indices)
-        local_entropies[i] = compute_entropy(local_prob)
-    
-    # 归一化局部熵
-    max_entropy = np.max(local_entropies)
-    min_entropy = np.min(local_entropies)
-    if max_entropy - min_entropy > 1e-10:
-        normalized_entropy = (local_entropies - min_entropy) / (max_entropy - min_entropy)
-    else:
-        normalized_entropy = np.zeros(len(freq_indices))
-    
-    # 惩罚函数
-    penalty = -normalized_power + entropy_weight * normalized_entropy
-    
-    if lambda_smooth > 0 and prev_if is not None:
-        freq_deviation = np.abs(frequencies[freq_indices] - prev_if) / prev_if
-        penalty += lambda_smooth * freq_deviation
-    
-    local_idx = np.argmin(penalty)
-    best_idx = freq_indices[local_idx]
-    best_freq = parabolic_interpolation(power_spectrum, best_idx, frequencies) if use_interpolation else frequencies[best_idx]
-    
-    global_prob = compute_probability_distribution(power_spectrum, freq_indices)
-    global_entropy = compute_entropy(global_prob)
-    
-    return best_freq, best_idx, global_entropy
-
-
 def _track_if_single_direction(power, f, start_idx, end_idx, step,
                                min_freq, max_freq, c1, c2,
-                               adaptive_range, lambda_smooth, use_interpolation):
-    """单方向追踪IF脊"""
+                               adaptive_range, lambda_smooth, use_interpolation,
+                               compute_penalty_func, strategy_params=None):
+    """单方向追踪IF脊
+    
+    参数:
+        compute_penalty_func: 惩罚函数 (callable)，通过策略注入
+        strategy_params: 策略额外参数 (dict)
+    """
+    if strategy_params is None:
+        strategy_params = {}
+    
     num_time_points = power.shape[1]
     if_path = np.zeros(num_time_points)
     
@@ -125,10 +74,16 @@ def _track_if_single_direction(power, f, start_idx, end_idx, step,
             if_path[k] = prev_if
             continue
         
-        best_freq, _, _ = compute_penalty_function(
-            power[:, k], search_indices, f,
-            prev_if=prev_if, lambda_smooth=lambda_smooth,
-            use_interpolation=use_interpolation
+        # 调用注入的惩罚函数
+        best_freq, _, _ = compute_penalty_func(
+            power_spectrum=power[:, k],
+            freq_indices=search_indices,
+            frequencies=f,
+            prev_if=prev_if,
+            lambda_smooth=lambda_smooth,
+            use_interpolation=use_interpolation,
+            parabolic_interpolation_func=parabolic_interpolation,
+            **strategy_params
         )
         if_path[k] = best_freq
     
@@ -172,7 +127,8 @@ def _fuse_bidirectional_paths(if_forward, if_backward, verbose=False):
 def entropy_based_lps(signal_data, fs, nperseg=131072, noverlap=None,
                       min_freq=5, max_freq=50, c1=0.9, c2=1.1,
                       adaptive_range=True, lambda_smooth=0.0,
-                      use_interpolation=True, bidirectional=True, verbose=True):
+                      use_interpolation=True, bidirectional=True, verbose=True,
+                      strategy='baseline', strategy_params=None):
     """
     基于熵的LPS算法主函数
 
@@ -188,12 +144,20 @@ def entropy_based_lps(signal_data, fs, nperseg=131072, noverlap=None,
         use_interpolation: 是否使用抛物线插值
         bidirectional: 是否使用双向追踪
         verbose: 是否打印进度信息
+        strategy: 惩罚函数策略名称 ('baseline' 等)
+        strategy_params: 策略额外参数 (dict)
 
     返回:
         t: 时间数组, if_estimated: IF数组, f: 频率数组, Zxx: STFT结果
     """
+    # 获取惩罚函数策略
+    compute_penalty = get_strategy(strategy)
+    if strategy_params is None:
+        strategy_params = {}
+    
     if verbose:
         print(f"LPS算法: fs={fs}Hz, nperseg={nperseg}, freq=[{min_freq},{max_freq}]Hz")
+        print(f"  策略: {strategy}")
 
     # 计算STFT
     f, t, Zxx = compute_stft(signal_data, fs, nperseg=nperseg, noverlap=noverlap)
@@ -206,7 +170,8 @@ def entropy_based_lps(signal_data, fs, nperseg=131072, noverlap=None,
     # 正向追踪
     if_forward = _track_if_single_direction(
         power, f, 0, num_time_points - 1, +1,
-        min_freq, max_freq, c1, c2, adaptive_range, lambda_smooth, use_interpolation
+        min_freq, max_freq, c1, c2, adaptive_range, lambda_smooth, use_interpolation,
+        compute_penalty, strategy_params
     )
 
     if not bidirectional:
@@ -215,7 +180,8 @@ def entropy_based_lps(signal_data, fs, nperseg=131072, noverlap=None,
         # 反向追踪
         if_backward = _track_if_single_direction(
             power, f, num_time_points - 1, 0, -1,
-            min_freq, max_freq, c1, c2, adaptive_range, lambda_smooth, use_interpolation
+            min_freq, max_freq, c1, c2, adaptive_range, lambda_smooth, use_interpolation,
+            compute_penalty, strategy_params
         )
         # 融合
         if_estimated = _fuse_bidirectional_paths(if_forward, if_backward, verbose=verbose)

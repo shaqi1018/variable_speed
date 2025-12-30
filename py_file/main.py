@@ -13,7 +13,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 
 from data import OttawaDataset
-from models import LWPINet
+from models import LWPINet, MSLWRNet
 from train import train_one_epoch, evaluate
 from utils.visualization import plot_training_history, plot_confusion_matrix, generate_classification_report
 
@@ -24,6 +24,25 @@ from utils.visualization import plot_training_history, plot_confusion_matrix, ge
 DATA_BASE_PATH = r"D:\Variable_speed\University_of_Ottawa\Original_data\UO_Bearing"
 FS = 200000  # 原始采样频率 200kHz
 N_SAMPLES = 2000000  # 原始振动信号点数
+
+# ================================
+# LPS算法策略配置
+# ================================
+# 可选策略:
+#   'baseline'  - 香农熵 (论文原版，稳定可靠)
+#   'renyi_v1'  - 瑞利熵 (创新策略，对峰值更敏感)
+LPS_STRATEGY = 'renyi_v1'  # 修改此处切换IF提取策略
+
+# 策略参数
+LPS_STRATEGY_PARAMS = {
+    # ---- baseline (香农熵) 参数 ----
+    # 'entropy_weight': 0.5,  # 熵项权重
+    
+    # ---- renyi_v1 (瑞利熵) 参数 ----
+    'alpha': 3,    # 瑞利熵阶数 (α>1对峰值敏感, 常用3或5)
+    'w1': 1.0,     # 能量权重 (功率越大越好)
+    'w2': 0.7,     # 熵权重 (峰值越尖锐越好)
+}
 
 # LPS算法参数
 LPS_CONFIG = {
@@ -37,6 +56,9 @@ LPS_CONFIG = {
     'use_interpolation': True,
     'bidirectional': True,
     'lambda_smooth': 2.61,
+    # 策略注入
+    'strategy': LPS_STRATEGY,
+    'strategy_params': LPS_STRATEGY_PARAMS,
 }
 
 # IF平滑插值参数
@@ -60,7 +82,15 @@ BATCH_SIZE = 64
 LEARNING_RATE = 0.001
 NUM_EPOCHS = 100
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-SAVE_DIR = "results"  # 结果保存目录
+SAVE_DIR = "../results"  # 结果保存目录
+
+# ================================
+# 模型选择配置
+# ================================
+# 可选模型:
+#   'lwpi'    - 原版LWPI网络 (Baseline)
+#   'mslwr'   - 多尺度小波残差网络 (创新模型)
+MODEL_TYPE = 'mslwr'  # 修改此处切换模型
 
 
 # ================================
@@ -79,13 +109,14 @@ def main():
     for i, subdir in enumerate(dataset.subdirs):
         print(f"  [{i}] {subdir}")
 
-    # 构建数据集：遍历0-3文件夹，提取IF、降采样、切片
+    # 构建数据集：遍历0-4文件夹，提取IF、降采样、切片
     print("\n开始构建数据集...")
     dataset.build_dataset(
         LPS_CONFIG, IF_SMOOTH_CONFIG,
         window_size=WINDOW_SIZE,
         hop_size=HOP_SIZE,
         downsample_factor=DOWNSAMPLE_FACTOR,
+        folder_indices=[0, 1, 2, 3, 4],  # 包含组合故障类
         verbose=True
     )
 
@@ -101,12 +132,26 @@ def main():
     print(f"\n训练集: {len(train_set)} | 测试集: {len(test_set)}")
 
     # ========== 2. 初始化模型 ==========
-    model = LWPINet(
-        num_classes=4,
-        num_filters=32,
-        seq_len=WINDOW_SIZE,
-        fs=FS // DOWNSAMPLE_FACTOR  # 降采样后的采样率 20kHz
-    ).to(DEVICE)
+    print(f"\n使用模型: {MODEL_TYPE}")
+    
+    if MODEL_TYPE == 'lwpi':
+        # 原版 LWPI 网络 (Baseline)
+        model = LWPINet(
+            num_classes=5,  # 5类: 健康/内圈/外圈/滚珠/组合故障
+            num_filters=32,
+            seq_len=WINDOW_SIZE,
+            fs=FS // DOWNSAMPLE_FACTOR  # 降采样后的采样率 20kHz
+        ).to(DEVICE)
+    elif MODEL_TYPE == 'mslwr':
+        # 多尺度小波残差网络 (创新模型)
+        model = MSLWRNet(
+            num_classes=5,
+            num_filters=64,  # 双路径，高低频各32
+            seq_len=WINDOW_SIZE,
+            fs=FS // DOWNSAMPLE_FACTOR
+        ).to(DEVICE)
+    else:
+        raise ValueError(f"未知模型类型: {MODEL_TYPE}, 可选: 'lwpi', 'mslwr'")
 
     # ========== 3. 定义 Loss 和 Optimizer ==========
     criterion = nn.CrossEntropyLoss()

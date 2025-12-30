@@ -62,3 +62,17 @@ def process_single_file(signal_data, fs, lps_config, if_smooth_config, verbose=T
         'Zxx': Zxx,
     }
 
+
+def downsample_signal(signal, factor):
+    """
+    对信号进行降采样
+    
+    参数:
+        signal: 原始信号 (ndarray)
+        factor: 降采样因子 (int)
+    
+    返回:
+        downsampled_signal: 降采样后的信号 (ndarray)
+    """
+    return signal[::factor]
+

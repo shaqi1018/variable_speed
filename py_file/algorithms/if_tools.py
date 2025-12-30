@@ -59,3 +59,39 @@ def smooth_and_interpolate_if(t_if, if_estimated, n_samples=2000000,
     trend_interp = cs_trend(t_full)
     
     return t_full, if_interp, trend_interp
+
+
+def smooth_if_curve(if_estimated, smooth_factor=0.1, k=3):
+    """
+    使用 UnivariateSpline 单变量样条平滑对 IF 曲线进行平滑
+    
+    UnivariateSpline 样条平滑的优点：
+    1. 通过平滑因子 s 自动权衡拟合精度与平滑度
+    2. 生成连续可导的平滑曲线，适合后续分析（如求导、积分）
+    3. 对局部噪声有较好的抑制能力，同时保留整体趋势
+    
+    参数:
+        if_estimated: 原始 IF 曲线 (ndarray)
+        smooth_factor: 平滑因子，范围 (0, 1]，越小越平滑，越大越接近原始数据
+                       默认 0.1，表示允许残差平方和为数据点数的 10%
+        k: 样条阶数，默认 3 (三次样条)，可选 1-5
+    
+    返回:
+        if_smoothed: 平滑后的 IF 曲线 (ndarray)
+    """
+    n = len(if_estimated)
+    
+    # 创建等间隔的自变量（时间索引）
+    x = np.arange(n)
+    
+    # 计算平滑参数 s：残差平方和的上限
+    # s = smooth_factor * n * var(y) 是常用的经验公式
+    # 这里简化为 s = smooth_factor * n，让用户直接控制相对平滑度
+    s = smooth_factor * n
+    
+    # 应用 UnivariateSpline 平滑
+    # s 参数控制平滑度：s=0 表示精确插值（无平滑），s 越大越平滑
+    spline = UnivariateSpline(x, if_estimated, k=k, s=s)
+    if_smoothed = spline(x)
+    
+    return if_smoothed

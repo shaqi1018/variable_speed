@@ -26,6 +26,7 @@ from algorithms.time_freq import compute_stft, compute_fft, remove_dc_component
 from algorithms.if_tools import smooth_if_curve
 from algorithms.pipeline import downsample_signal
 from data.data_utils import load_channel1_data
+from index import evaluate_if_extraction, print_metrics
 
 
 # ==============================
@@ -50,11 +51,40 @@ LPS_CONFIG = {
     'bidirectional': True,    # 使用双向追踪
 }
 
-# 后处理平滑参数
+# ==============================
+# 策略配置 (用于算法对比实验)
+# ==============================
+# 可用策略: 
+#   'baseline' - 香农熵 (论文原版)
+#   'renyi_v1' - 瑞利熵 (创新策略)
+
+# --- 策略 A: Baseline (香农熵) ---
+BASELINE_CONFIG = {
+    'strategy': 'baseline',
+    'strategy_params': {
+        'entropy_weight': 0.5,  # 熵项权重
+    },
+}
+
+# --- 策略 B: 瑞利熵 ---
+RENYI_CONFIG = {
+    'strategy': 'renyi_v1',
+    'strategy_params': {
+        'alpha': 3,       # 核心参数：瑞利熵阶数 (3或5，聚焦峰值，忽略噪声)
+        'w1': 1.0,        # 能量权重 (越大越好)
+        'w2': 0.5,        # 熵权重 (越尖越好)
+        # lambda_smooth 在 LPS_CONFIG 中设置
+    },
+}
+
+# ========== 当前使用的策略 (修改这里切换算法) ==========
+STRATEGY_CONFIG = RENYI_CONFIG  # 或 RENYI_CONFIG
+
+# 后处理平滑参数 (UnivariateSpline)
 SMOOTH_CONFIG = {
     'enabled': True,          # 是否启用平滑
-    'window_size': 15,        # 滤波器窗口大小（必须为奇数）
-    'poly_order': 3,          # 多项式阶数（保留形状特征）
+    'smooth_factor': 0.03,     # 平滑因子，范围(0,1]，越小越平滑
+    'k': 3,                   # 样条阶数，默认3（三次样条）
 }
 
 
@@ -149,7 +179,7 @@ def plot_results(signal, fs, freq_spectrum, power_spectrum,
     im2 = ax3.pcolormesh(t_if, f_stft, magnitude_db, 
                          shading='gouraud', cmap='jet', vmin=-80, vmax=10)
     ax3.plot(t_if, if_estimated, 'w--', linewidth=1.5, alpha=0.6, label='原始IF')
-    ax3.plot(t_if, if_smoothed, 'lime', linewidth=2.5, label='平滑IF (Savitzky-Golay)')
+    ax3.plot(t_if, if_smoothed, 'lime', linewidth=2.5, label='平滑IF (Spline)')
     ax3.set_xlabel('时间 (s)', fontsize=12)
     ax3.set_ylabel('频率 (Hz)', fontsize=12)
     ax3.set_title('时频图 + 瞬时频率脊线', fontsize=13, fontweight='bold')
@@ -203,11 +233,14 @@ def main():
     
     # 5. 应用LPS算法提取瞬时频率
     print("\n正在应用基于熵的LPS算法...")
+    print(f"策略: {STRATEGY_CONFIG['strategy']}")
     print("-" * 60)
     try:
         t_if, if_estimated, f_stft, Zxx = entropy_based_lps(
             signal, FS, 
             **LPS_CONFIG,
+            strategy=STRATEGY_CONFIG['strategy'],
+            strategy_params=STRATEGY_CONFIG['strategy_params'],
             verbose=True
         )
         print("-" * 60)
@@ -220,22 +253,45 @@ def main():
     
     # 6. 应用后处理平滑
     if SMOOTH_CONFIG['enabled']:
-        print(f"\n正在应用Savitzky-Golay平滑 (窗口={SMOOTH_CONFIG['window_size']}, 阶数={SMOOTH_CONFIG['poly_order']})...")
+        print(f"\n正在应用UnivariateSpline样条平滑 (smooth_factor={SMOOTH_CONFIG['smooth_factor']}, k={SMOOTH_CONFIG['k']})...")
         if_smoothed = smooth_if_curve(
             if_estimated, 
-            window_size=SMOOTH_CONFIG['window_size'],
-            poly_order=SMOOTH_CONFIG['poly_order']
+            smooth_factor=SMOOTH_CONFIG['smooth_factor'],
+            k=SMOOTH_CONFIG['k']
         )
     else:
         if_smoothed = if_estimated
     
-    # 7. 绘制结果
+    # 7. 计算验证指标
+    print("\n正在计算IF提取质量指标...")
+    metrics = evaluate_if_extraction(
+        stft_matrix=Zxx,
+        if_curve=if_smoothed,
+        frequencies=f_stft,
+        time_axis=t_if,
+        freq_tolerance=1.0,      # 频率容差 1 Hz
+        jump_threshold=0.1       # 跳变阈值 10%
+    )
+    print_metrics(metrics, f"IF提取质量评估 - {STRATEGY_CONFIG['strategy']}")
+    
+    # 8. 绘制结果
     print("\n正在绘制结果...")
     plot_results(signal, FS, freq_spectrum, power_spectrum, 
                  t_if, if_estimated, if_smoothed, f_stft, Zxx, file_name)
     
     print("\n处理完成!")
     print("=" * 60)
+    
+    # 返回结果供进一步分析
+    return {
+        'metrics': metrics,
+        'if_smoothed': if_smoothed,
+        'if_estimated': if_estimated,
+        't_if': t_if,
+        'f_stft': f_stft,
+        'Zxx': Zxx,
+        'strategy': STRATEGY_CONFIG['strategy']
+    }
 
 
 if __name__ == "__main__":
